@@ -13,4 +13,4 @@ raco pkg install rsound
 ```bash
 cd Game/
 racket Chain_Reaction.rkt
-```bash
+```
