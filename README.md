@@ -1,5 +1,5 @@
 # Chain Reaction - Racket Language
-DR RACKET implementation of the game CHAIN REACTION .
+DR RACKET implementation of the game CHAIN REACTION.
 
 ## Requirements
 
@@ -9,7 +9,8 @@ raco pkg install rsound
 ```
 
 
-## Usage
-
+### Usage
+```bash
 cd Game/
 racket Chain_Reaction.rkt
+```bash
