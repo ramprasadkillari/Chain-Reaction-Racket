@@ -1,0 +1,342 @@
+#lang racket
+(require racket/gui)
+(require rsound)
+(require "bitmaps.rkt")
+(define gt "Green's turn")
+(define rt  "Red's turn")
+(define bt "Blue's turn")
+(define w 50)                      ;width of each cell
+(define h 50)                      ;height of each cell
+(define rs 3)                      ;default number of rows of grid
+(define cs 3)                      ;default number of columns of grid
+(define state #t)                  ;variable used in function "upgrade" to control explosions after the completion of the game(in case of an infinite loop).   
+(define state-v #t)                ;same as "state" but used in grid2 (dummy of grid)
+(define win #f)                    ;used in function "bestpos"
+(define MAX_ROWS rs)
+(define MAX_COLS cs)
+(define n 1)                       ;default number of players (1 to 3 players only).
+(define pl-label 0)                ;used in "is-game-over" function
+(define pl-label1 0)               ;used in "is-eliminated?" function
+(define pl-label2 0)               ;used in "is-eliminated?" function
+(define curr_players (cons gt rt)) ; In case of a two player game, it stores the two players.
+(define colors (list "gr" "re" "bl"))
+(define (s) (play ding))           ;to play sound when a cell is altered.
+
+(define (vr v r c)                          ;to access element of a 2D vector
+  (vector-ref (vector-ref v r) c))
+(define (v-set! v r c new_val)              ;to mutate/assign a position of a 2D vector with some particular value
+  (vector-set! (vector-ref v r) c new_val))
+
+;The next few lines makes a dialog box "Select size" with a few options.
+(define sel-size (new dialog% [label "SELECT SIZE"] [width 300] [height 350]))       ;sel-size denotes the dialog box by which size of the grid and number of players can be set.
+
+(define instr (new message% [parent sel-size] [label " Specify row and column size >= 3"]))
+(define panel1 (new horizontal-panel% [parent sel-size]))
+(define panel2 (new horizontal-panel% [parent sel-size]))
+(define panel3 (new horizontal-panel% [parent sel-size]))
+
+
+(define row (new message% [parent panel1] [label "  SELECT ROW SIZE                   "]))
+(define column (new message% [parent panel2] [label "  SELECT COLUMN SIZE          "]))
+(define num (new message% [parent panel3] [label "  NUMBER OF PLAYERS           "]))
+(define row_but2 (new button% [parent panel1] [label "-"]
+          [callback (lambda (x event) (cond [(> rs 3) (begin  (set! rs (- rs 1)) (send row_but set-label (number->string rs))
+                                                           (set! MAX_ROWS rs))]))]))
+(define row_but (new button% [parent panel1] [label (number->string rs)]
+  [callback (lambda (row_but event) #f) ]))
+
+(define row_but1 (new button% [parent panel1] [label "+"]
+          [callback (lambda (x event) (begin  (set! rs (+ rs 1)) (send row_but set-label (number->string rs))
+                                                           (set! MAX_ROWS rs)))]))
+
+(define col_but2 (new button% [parent panel2] [label "-"]
+          [callback (lambda (x event) [cond [(> cs 3) (begin  (set! cs (- cs 1)) (send col_but set-label (number->string cs))
+                                                           (set! MAX_COLS cs))]])]))
+(define col_but (new button% [parent panel2] [label (number->string cs)]
+  [callback (lambda (x event) #f) ]))
+
+(define col_but1 (new button% [parent panel2] [label "+"]
+          [callback (lambda (x event) (begin  (set! cs (+ cs 1)) (send col_but set-label (number->string cs))
+                                                           (set! MAX_COLS cs)))]))
+
+(define plno. (new button% [parent panel3] [label "-"]
+          [callback (lambda (x event) (cond [(> n 1) (begin  (set! n (- n 1)) (send num_but set-label (number->string n)) )]))]))
+                                                          
+(define num_but (new button% [parent panel3] [label (number->string n)]
+  [callback (lambda (num_but event) #f) ]))
+
+(define plno_1 (new button% [parent panel3] [label "+"]
+          [callback (lambda (x event) [cond [(< n 3) (begin  (set! n (+ n 1)) (send num_but set-label (number->string n)))]])]))
+                                                           
+
+
+(define play_but (new button% [parent sel-size] [label " \n     Play      \n"]
+                  [callback (lambda (play_but event)
+                    (send sel-size show #f))]))
+; "Select size" dialog box created
+(send sel-size show #t)  
+
+(define p n)
+
+
+(define (set_new r c) (let* [(rnext (if (= c (- MAX_COLS 1)) (+ r 1) r))      ;Brings the grid back to its initial epmty state on selecting "Play again"
+                          (cnext (if (= c (- MAX_COLS 1)) 0 (+ c 1)))]
+                    (cond [(not (= r MAX_ROWS))
+                         (begin (send (vr grid r c) set-label none) (set_new rnext cnext))])))
+
+
+(define (is-game-over? r c)          ;Checks if a player has won the game after every turn
+  [if (= r MAX_ROWS) (begin (set! pl-label 0) #t) (let* [(bml (send (vr grid r c) get-label))
+         (a (cdr (cell-info bml)))
+         (rnext (if (= c (- MAX_COLS 1)) (+ r 1) r))
+         (cnext (if (= c (- MAX_COLS 1)) 0 (+ c 1)))]
+    (cond  
+           [(equal? pl-label 0) (if (not (equal? a 0))
+                                    (begin (set! pl-label a) (is-game-over? rnext cnext))
+                                    (is-game-over? rnext cnext))]
+           [(not (equal? a 0)) (if (equal? a pl-label)
+                                   (is-game-over? rnext cnext)
+                                   (begin (set! pl-label 0) #f))]
+           [(or (equal? a 0) (equal? a pl-label)) (is-game-over? rnext cnext)]))])
+
+(define (is-eliminated? r c)     ;In case of 3 player game, checks if one of the players is eliminated.
+  [if (= r MAX_ROWS)
+
+    (let* [(elim-pls (remove* (list pl-label1 pl-label2) colors))]
+                 (if (= 2 (length elim-pls)) (let* [(winner (car (remove* elim-pls colors)))]
+               (begin (set! pl-label1 0) (set! pl-label1 0) (cond [(equal? winner "bl") (send msgdlg set-label "\n CONGRATULATIONS BLUE WINS \n")]
+                                   [(equal? winner "gr") (send msgdlg set-label "\n CONGRATULATIONS GREEN WINS \n")]
+                                   [else (send msgdlg set-label "\n CONGRATULATIONS RED WINS \n")])
+                                                      (send dlg show #t)))
+                     (begin (set! n 2) (set! pl-label1 0) (set! pl-label2 0)
+                            (if (equal? (car elim-pls) "bl")
+                                           (set! curr_players (cons gt rt))
+                                           (if (equal? (car elim-pls) "gr") (set! curr_players (cons rt bt)) (cons gt bt))))))
+
+
+
+      (let* [(bml (send (vr grid r c) get-label))
+         (a (cdr (cell-info bml)))
+         (rnext (if (= c (- MAX_COLS 1)) (+ r 1) r))
+         (cnext (if (= c (- MAX_COLS 1)) 0 (+ c 1)))]
+    (cond  
+           [(equal? pl-label1 0) (if (not (equal? a 0))
+                                    (begin (set! pl-label1 a) (is-eliminated? rnext cnext))
+                                    (is-eliminated? rnext cnext))]
+            [(equal? pl-label2 0) (if (and (not (equal? a 0)) (not (equal? a pl-label1)))
+                                    (begin (set! pl-label2 a) (is-eliminated? rnext cnext))
+                                    (is-eliminated? rnext cnext))]
+           [(not (equal? a 0)) (if (or (equal? a pl-label1) (equal? a pl-label2))
+                                   (is-eliminated? rnext cnext)
+                                   (begin (set! pl-label1 0) (set! pl-label2 0)))]
+           [else (is-eliminated? rnext cnext)]))])
+         
+
+(define (max-safe-orbs r c)                   ;returns the maximum number of orbs that a cell can hold.
+  (cond [(or (= r (- MAX_ROWS 1)) (= r 0)) (if (or (= c 0) (= c (- MAX_COLS 1))) 1 2)]
+        [(or (= c 0) (= c (- MAX_COLS 1))) 2]
+        [else 3]))
+
+(define (adjacent r c)            ;returns a list of positions of cells that are horizontally and vertically adjacent to the cell at (r,c).
+  (cond [(= r 0) (if (= c 0) (list (cons r (+ c 1)) (cons (+ r 1) c))
+                     (if (= c (- MAX_COLS 1)) (list (cons r (- c 1)) (cons (+ r 1) c))
+                         (list (cons (+ r 1) c) (cons r (+ c 1)) (cons r (- c 1)))))]
+        [(= r (- MAX_ROWS 1)) (if (= c 0) (list (cons r (+ c 1)) (cons (- r 1) c))
+                       (if (= c (- MAX_COLS 1)) (list (cons r (- c 1)) (cons (- r 1) c))
+                         (list (cons (- r 1) c) (cons r (+ c 1)) (cons r (- c 1)))))]
+        [(= c 0) (list (cons r (+ c 1)) (cons (- r 1) c) (cons (+ r 1) c))]
+        [(= c (- MAX_COLS 1)) (list (cons r (- c 1)) (cons (- r 1) c) (cons (+ r 1) c))]
+        [else (list (cons r (+ c 1)) (cons r (- c 1)) (cons (+ r 1) c) (cons (- r 1) c))]))
+
+(define (chain-explode col r c)         ;calls for repeated explosions in case an orb is placed in a critical cell.
+ (for-each (lambda (pair) (let* [(but (vr grid (car pair) (cdr pair))) (rn (car pair)) (cn (cdr pair))]
+                            (upgrade col rn cn but))) (adjacent r c)))
+
+(define (upgrade col r c but)    ;returns the grid after the player has placed an orb
+(cond [state
+       (let* [(bmlabel (send but get-label))]
+  (cond 
+       [(equal? col "re") (let* [(no. (car (cell-info bmlabel)))]
+          (if (= no. (max-safe-orbs r c))
+              (begin (send but set-label none) (s) (sleep 0.1) (chain-explode "re" r c))
+             (begin (send but set-label (if (= no. 2) r3 (if (= no. 1) r2 r1))) (s)
+                    (begin (cond [(= n 3) (is-eliminated? 0 0)]) (cond [(is-game-over? 0 0)
+                    (begin (send msgdlg set-label "CONGRATULATIONS RED WINS") (send dlg show #t))])))))]
+       [(equal? col "bl") (let* [(no. (car (cell-info bmlabel)))]
+          (if (= no. (max-safe-orbs r c))
+              (begin (send but set-label none) (s) (sleep 0.1) (chain-explode "bl" r c))
+             (begin (send but set-label (if (= no. 2) b3 (if (= no. 1) b2 b1))) (s)
+                    (begin (cond [(= n 3) (is-eliminated? 0 0)]) (cond [(is-game-over? 0 0)
+                    (begin (send msgdlg set-label "CONGRATULATIONS BLUE WINS")    (send dlg show #t))])))))]
+       [(equal? col "gr") (let* [(no. (car (cell-info bmlabel)))]
+          (if (= no. (max-safe-orbs r c))
+              (begin (send but set-label none) (s) (sleep 0.1) (chain-explode "gr" r c))
+             (begin (send but set-label (if (= no. 2) g3 (if (= no. 1) g2 g1))) (s)
+                    (begin (cond [(= n 3) (is-eliminated? 0 0)]) (cond [(is-game-over? 0 0)
+                     (begin (send msgdlg set-label (if (= n 1) "COMPUTER WINS" "CONGRATULATIONS GREEN WINS"))
+                                                      (set! state #f) (send dlg show #t))])))))]))]))
+     
+
+(define (cell-info bml)          ;returns the number of orbs and its colour contained in a cell
+  (cond [(equal? bml none) (cons 0 0)]     ;returns the number and colour as 0 in case no orb is present in the cell
+        [(member bml (list g1 g2 g3))
+         (if (equal? bml g1) (cons 1 "gr") (if (equal? bml g2) (cons 2 "gr")  (cons 3 "gr")))]
+        [(member bml (list r1 r2 r3))
+         (if (equal? bml r1) (cons 1 "re") (if (equal? bml r2) (cons 2 "re")  (cons 3 "re")))]
+        [(member bml (list b1 b2 b3))
+         (if (equal? bml b1) (cons 1 "bl") (if (equal? bml b2) (cons 2 "bl")  (cons 3 "bl")))]))
+
+(define (f but r c msgname)                  
+  (let* [(bmlabel (send but get-label))]
+    (cond [(equal? bmlabel none) (begin (send but set-label (if (equal? msgname gt) g1 (if (equal? msgname rt) r1 b1))) (s))]
+          [(member bmlabel (list g1 g2 g3))
+                   (if (equal? msgname gt) (upgrade "gr" r c but) (begin (send msg set-label (wrong msgname)) bmlabel))]
+          [(member bmlabel (list r1 r2 r3))
+                   (if (equal? msgname rt) (upgrade "re" r c but) (begin (send msg set-label (wrong msgname)) bmlabel))]
+           [(member bmlabel (list b1 b2 b3))
+                   (if (equal? msgname bt) (upgrade "bl" r c but) (begin (send msg set-label (wrong msgname)) bmlabel))]
+           )))
+       
+(define (msgset str)
+  (cond [(= n 3) (if (equal? str gt) rt (if (equal? str rt) bt gt))]
+        [(= n 1) (if (equal? str gt) rt gt)]
+      [(= n 2) (if (equal? str (car curr_players)) (cdr curr_players) (car curr_players))]))
+
+(define (wrong msgname)
+  (if (= n 3) (msgset (msgset msgname)) (msgset msgname)))
+
+(define (flash but)
+  (let* [(label (send but get-label))]
+   (begin (send but set-label yel) (sleep 0.1) (send but set-label label))))
+
+
+(define frame (new frame%
+                   [label "CHAIN REACTION"]
+                   [width 0]
+                   [height 0]
+                   [stretchable-width #f]
+                   [stretchable-height #f]))
+
+(define msg (new message% [parent frame] [label rt] [auto-resize #t]))
+
+(define panels (build-vector MAX_ROWS (lambda (x) (new horizontal-panel% [parent frame]))))
+
+(define grid  (build-vector MAX_ROWS (lambda (r) (build-vector MAX_COLS
+                      (lambda (c) (new button% [parent (vector-ref panels r)] [label none]
+                           [horiz-margin 0] [vert-margin 0] [min-width w] [min-height h]         
+
+                           [callback (lambda (b e)  (begin (set! state #t) (f (vr grid r c) r c (send msg get-label)) 
+                               (send msg set-label (msgset (send msg get-label))) 
+ (cond [(= n 1) (begin (set! state-v #t)  (let* [(bp (best-pos 0 0 "gr" -100000 (cons 0 0))) (rn (car bp)) (cn (cdr bp))]
+   (begin (sleep 0.2) (flash (vr grid rn cn)) (f (vr grid rn cn) rn cn (send msg get-label))
+          (send msg set-label (msgset (send msg get-label))))))])))] ))))))
+
+
+
+(define (vec-info label)
+  (cond [(equal? label none) (cons 0 0)]
+        [(member label (list g1 g2 g3))
+         (if (equal? label g1) (cons 1 "gr") (if (equal? label g2) (cons 2 "gr") (cons 3 "gr")))]
+        [(member label (list r1 r2 r3))
+         (if (equal? label r1) (cons 1 "re") (if (equal? label r2) (cons 2 "re") (cons 3 "re")))]))
+
+  (define grid2
+     (build-vector MAX_ROWS (lambda (r) (build-vector MAX_COLS (lambda (c) (cons 0 0))))))
+
+(define (copygv r c) (let* [(rnext (if (= c (- MAX_COLS 1)) (+ r 1) r))
+                          (cnext (if (= c (- MAX_COLS 1)) 0 (+ c 1)))]
+                    (cond [(not (and (= r (- MAX_ROWS 1)) (= c (- MAX_COLS 1))))
+            (begin (v-set! grid2 r c (vec-info (send (vr grid r c) get-label))) (copygv rnext cnext))]
+                          [else (v-set! grid2 r c (vec-info (send (vr grid r c) get-label)))])))
+
+(define (trans-v col r c)
+ (for-each (lambda (pair) (let* [(rn (car pair)) (cn (cdr pair))]
+                            (upgrade-v col rn cn))) (adjacent r c)))
+
+(define (is-game-overv? r c)
+ (if (= r MAX_ROWS) #t (let* [(bml (vr grid2 r c))
+         (a (cdr bml))
+         (rnext (if (= c (- MAX_COLS 1)) (+ r 1) r))
+         (cnext (if (= c (- MAX_COLS 1)) 0 (+ c 1)))]
+    (cond 
+           [(not (equal? a 0)) (if (equal? a pl-label) (is-game-overv? rnext cnext) (begin (set! pl-label 0) #f))]
+           [(equal? a 0) (is-game-overv? rnext cnext)]))))
+;;grid2 is a dummy vector used to represent the grid in finding the best position
+;;upgrade-v function : u 
+
+(define (upgrade-v col r c)
+(cond [state-v (let* [(bmlabel (vr grid2 r c))]
+  (cond 
+       [(equal? col "re") (let* [(no. (car bmlabel))]
+          (if (= no. (max-safe-orbs r c)) (begin (v-set! grid2 r c (cons 0 0)) (trans-v "re" r c))
+              (begin (v-set! grid2 r c (if (= no. 2) (cons 3 "re") (if (= no. 1) (cons 2 "re") (cons 1 "re"))))
+                 (cond [(begin (set! pl-label col) (is-game-overv? 0 0)) (begin (set! win #t) (set! state-v #f))]))))]
+       [(equal? col "gr") (let* [(no. (car bmlabel))]
+          (if (= no. (max-safe-orbs r c)) (begin (v-set! grid2 r c (cons 0 0)) (trans-v "gr" r c))
+            (begin (v-set! grid2 r c (if (= no. 2) (cons 3 "gr") (if (= no. 1) (cons 2 "gr") (cons 1 "gr"))))
+                (cond [(begin (set! pl-label col) (is-game-overv? 0 0))  (begin (set! win #t) (set! state-v #f))]))))]))]))
+
+;;best-pos returns a position as pair of co-ordinates (cons r c) ..by calculating the best  positon
+;for  placing an orb by analysing the present grid situation. So as to maximize the player’s score ;;and minimize the opponent’s score.
+;;copygv function copies the  present grid situation
+
+
+
+
+(define (best-pos r c col res pair)
+ (cond [(= r MAX_ROWS) pair]
+       [(= res 10000) pair]
+       [else (begin (copygv 0 0) (let* [(rnext (if (= c (- MAX_COLS 1)) (+ r 1) r))
+                                (cnext (if (= c (- MAX_COLS 1)) 0 (+ c 1)))
+                                (color (cdr (vr grid2 r c)))]
+ (cond [(or (equal? color 0) (equal? color col))
+
+        (let* [(sc (begin (upgrade-v col r c) (if win 10000 (- (score "gr" 0 0 0 #t "re") (score "re" 0 0 0 #t "gr")))))]              
+             (if (> sc res) (best-pos rnext cnext col sc (cons r c))
+                           (best-pos rnext cnext col res pair)))]
+          [else  (best-pos rnext cnext col res pair)])))]))
+
+;;Calculates Score of a board with respect to a player’s colour based on some heuristic strategies.
+;;my_win variable  returns score as 10000 if the board is a won game with respect to a player.
+
+
+
+
+
+(define (score col r c res my_win col2) 
+  (if (= r MAX_ROWS) (if my_win 10000 res) (let* [(rnext (if (= c (- MAX_COLS 1)) (+ r 1) r))
+         (cnext (if (= c (- MAX_COLS 1)) 0 (+ c 1)))
+         (num (car (vr grid2 r c)))
+         (color (cdr (vr grid2 r c)))
+         (adj (adjacent r c))]
+    (cond [(equal? color col) (let* [(sur-enemy-crit-orbs #f) (sur-same-crit-orbs #f)
+                                     (cellvalue (if (= num (max-safe-orbs r c)) (* 2 num) 0))] ;;point 5
+         (begin (for-each (lambda (x) (cond [(= (max-safe-orbs (car x) (cdr x)) (car (vr grid2 (car x) (cdr x))))
+                      (if (equal? (cdr (vr grid2 (car x) (cdr x))) col2)
+                           (begin (set! sur-enemy-crit-orbs #t)
+                           (set! res (- res (* num (- 5 (+ (max-safe-orbs (car x) (cdr x)) 1))))))  ;;point 3
+                               (set! sur-same-crit-orbs #t))]))              
+                                          adj)
+                 (cond [(not sur-enemy-crit-orbs) (begin 
+                             (cond [(= (max-safe-orbs r c) 1) (set! res (+ res (* num 3)))]   ;; point4               
+                                [(= (max-safe-orbs r c) 2) (set! res (+ res (* num 2)))])
+                                                  
+                                                              (set! res (+ res cellvalue)))]) ;;point 5
+                (cond [sur-same-crit-orbs (set! res (+ res 2))])  ;;point 7
+               
+                   (score col rnext cnext (+ res num) my_win col2)))]  ;;point 6
+          [else (begin (cond [(equal? color col2) (set! my_win #f)]) (score col rnext cnext res my_win col2))]))))
+
+
+;;dialog box appears after completion of game, showing the winner of the game(in case of muultiplayer) and a play again option.
+;;Play again button :  sets all the variables back to their initial values.
+
+
+
+(define dlg (new dialog% [label "GAME 0VER"]  [width 300] [height 150] [parent frame]))
+(define msgdlg (new message% [parent dlg] [label "hi"] [auto-resize #t]))
+(define play_again (new button% [parent dlg] [label "Play again"]
+            [callback (lambda (b e) (begin (set_new 0 0) (set! state #f)
+                       (set! state-v #f) (set! win #f) (set! n p) (set! pl-label 0)  (send dlg show #f)))]))
+
+(send frame show #t)
